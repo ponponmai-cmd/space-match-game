@@ -42,10 +42,11 @@
         .stats {
             display: flex;
             justify-content: center;
-            gap: 40px;
+            gap: 30px;
             margin-bottom: 20px;
             color: #fff;
             font-size: 1.1em;
+            flex-wrap: wrap;
         }
 
         .stat {
@@ -58,6 +59,14 @@
             font-weight: bold;
             font-size: 1.3em;
             color: #ffeb3b;
+            min-width: 60px;
+        }
+
+        .timer {
+            background: rgba(255, 235, 59, 0.2);
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 2px solid #ffeb3b;
         }
 
         .game-board {
@@ -123,6 +132,7 @@
             display: flex;
             gap: 10px;
             justify-content: center;
+            flex-wrap: wrap;
         }
 
         button {
@@ -148,6 +158,22 @@
 
         .reset-btn:active {
             transform: scale(0.95);
+        }
+
+        .music-btn {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 10px 20px;
+            font-size: 0.9em;
+        }
+
+        .music-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        .music-btn.playing {
+            background: linear-gradient(135deg, #ffeb3b 0%, #ffc107 100%);
         }
 
         .modal {
@@ -183,7 +209,7 @@
 
         .modal-content p {
             font-size: 1.3em;
-            margin-bottom: 30px;
+            margin-bottom: 10px;
         }
 
         .modal-content button {
@@ -191,6 +217,7 @@
             font-size: 1.1em;
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
             color: white;
+            margin-top: 20px;
         }
 
         .difficulty-select {
@@ -226,6 +253,14 @@
             .container {
                 padding: 15px;
             }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -243,6 +278,10 @@
         </div>
 
         <div class="stats">
+            <div class="stat timer">
+                <span>⏱️ 時間：</span>
+                <span class="stat-value" id="timer">0:00</span>
+            </div>
             <div class="stat">
                 <span>💫 找到配對：</span>
                 <span class="stat-value"><span id="matched">0</span>/18</span>
@@ -256,6 +295,7 @@
         <div class="game-board" id="gameBoard"></div>
 
         <div class="button-group">
+            <button class="music-btn" id="musicBtn" onclick="toggleMusic()">🎵 開啟音樂</button>
             <button class="reset-btn" onclick="resetGame()">🔄 重新開始</button>
         </div>
     </div>
@@ -269,7 +309,77 @@
         </div>
     </div>
 
+    <!-- 隱藏的音頻元素 -->
+    <audio id="bgMusic" loop>
+        <source src="data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAA==" type="audio/wav">
+    </audio>
+
     <script>
+        // 生成輕鬆的配樂 (使用 Web Audio API)
+        class MusicGenerator {
+            constructor() {
+                this.audioContext = null;
+                this.isPlaying = false;
+            }
+
+            init() {
+                if (!this.audioContext) {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            play() {
+                this.init();
+                if (this.isPlaying) return;
+                this.isPlaying = true;
+
+                const ctx = this.audioContext;
+                const now = ctx.currentTime;
+
+                // 輕鬆的旋律
+                const melody = [
+                    { freq: 262, time: 0, duration: 0.4 },    // C
+                    { freq: 330, time: 0.4, duration: 0.4 },  // E
+                    { freq: 392, time: 0.8, duration: 0.4 },  // G
+                    { freq: 330, time: 1.2, duration: 0.4 },  // E
+                    { freq: 262, time: 1.6, duration: 0.8 },  // C
+                    { freq: 294, time: 2.4, duration: 0.4 },  // D
+                    { freq: 330, time: 2.8, duration: 0.4 },  // E
+                    { freq: 392, time: 3.2, duration: 0.8 },  // G
+                ];
+
+                melody.forEach(note => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+
+                    osc.frequency.value = note.freq;
+                    osc.type = 'sine';
+
+                    gain.gain.setValueAtTime(0.3, now + note.time);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + note.time + note.duration);
+
+                    osc.start(now + note.time);
+                    osc.stop(now + note.time + note.duration);
+                });
+
+                // 重複播放
+                setTimeout(() => {
+                    if (this.isPlaying) {
+                        this.play();
+                    }
+                }, 4000);
+            }
+
+            stop() {
+                this.isPlaying = false;
+            }
+        }
+
+        const musicGenerator = new MusicGenerator();
+
         // 外太空相關的表情符號
         const spaceEmojis = [
             '🌑', '🌕', '⭐', '✨', '🌟', '💫',
@@ -283,6 +393,9 @@
         let attempts = 0;
         let isLocked = false;
         let gameSize = 6;
+        let startTime = null;
+        let timerInterval = null;
+        let musicPlaying = false;
 
         // 初始化遊戲
         function initGame() {
@@ -290,6 +403,11 @@
             attempts = 0;
             flippedCards = [];
             isLocked = false;
+            startTime = Date.now();
+
+            // 清除舊的計時器
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 100);
 
             // 根據難度調整遊戲大小
             const difficulty = document.getElementById('difficulty').value;
@@ -314,6 +432,16 @@
 
             // 更新統計
             updateStats();
+        }
+
+        // 更新計時器
+        function updateTimer() {
+            if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                document.getElementById('timer').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
         }
 
         // 洗牌函數 (Fisher-Yates)
@@ -399,8 +527,17 @@
 
         // 顯示勝利彈窗
         function showWinModal() {
+            clearInterval(timerInterval);
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            const time = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             const efficiency = (((gameSize * gameSize) / 2) / attempts * 100).toFixed(1);
-            document.getElementById('finalStats').textContent = `用了 ${attempts} 次嘗試，正確率 ${efficiency}%`;
+            document.getElementById('finalStats').innerHTML = `
+                ⏱️ 用時：${time}<br>
+                📊 嘗試次數：${attempts}<br>
+                ✨ 正確率：${efficiency}%
+            `;
             document.getElementById('winModal').classList.add('show');
         }
 
@@ -413,6 +550,22 @@
         // 改變難度
         function changeDifficulty() {
             resetGame();
+        }
+
+        // 切換音樂
+        function toggleMusic() {
+            const btn = document.getElementById('musicBtn');
+            if (musicPlaying) {
+                musicGenerator.stop();
+                btn.textContent = '🎵 開啟音樂';
+                btn.classList.remove('playing');
+                musicPlaying = false;
+            } else {
+                musicGenerator.play();
+                btn.textContent = '🎵 關閉音樂';
+                btn.classList.add('playing');
+                musicPlaying = true;
+            }
         }
 
         // 初始化
